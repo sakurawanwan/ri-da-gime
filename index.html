@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>あみだくじ（当たりがでたらリーダーね）</title>
+  <style>
+    body{margin:0;font-family:Inter,'Noto Sans JP',system-ui;background:#071028;color:#e6eef8;padding:24px}
+    .wrap{max-width:900px;margin:auto}
+    .names{display:flex;gap:8px;margin-bottom:12px}
+    .names input{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:inherit}
+    button{background:#6ee7b7;border:none;padding:8px 12px;border-radius:8px;cursor:pointer;color:#042017;font-weight:700}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#94a3b8}
+    #amida{width:100%;max-width:760px;height:480px;background:rgba(255,255,255,0.02);border-radius:12px;display:block}
+    #bottomNames{display:flex;justify-content:space-between;margin-top:8px;max-width:760px}
+    #result{font-size:20px;margin-top:10px;color:#ffd166;font-weight:800}
+    #fireworksCanvas{position:absolute;left:0;top:0;pointer-events:none}
+  </style>
+</head>
+<body>
+<canvas id="fireworksCanvas"></canvas>
+  <div class="wrap">
+    <h1>あみだくじ（当たりがでたらリーダーね）</h1>
+    <div class="names" id="nameInputs">
+      <input value="佐藤"><input value="鈴木"><input value="高橋">
+      <input value="田中"><input value="伊藤"><input value="渡辺">
+    </div>
+    <div class="controls">
+      <button id="gen">横線生成</button>
+      <button id="start">スタート</button>
+      <button id="reset" class="ghost">リセット</button>
+      <label style="margin-left:8px;color:#94a3b8">行数</label>
+      <input id="rows" type="number" min="6" max="40" value="14" style="width:72px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;margin-left:6px" />
+    </div>
+    <svg id="amida" viewBox="0 0 760 480" preserveAspectRatio="xMidYMid meet"></svg>
+    <div id="bottomNames"></div>
+    <div id="result">—</div>
+  </div>
+
+<script>
+//--------------------------------------------------
+// ★ 花火エフェクト
+//--------------------------------------------------
+const fw = document.getElementById('fireworksCanvas');
+const fctx = fw.getContext('2d');
+function resizeFW(){ fw.width = innerWidth; fw.height = innerHeight; }
+resizeFW(); addEventListener('resize', resizeFW);
+let particles=[];
+function spawnFirework(x,y){
+  for(let i=0;i<40;i++){
+    const angle = Math.random()*Math.PI*2;
+    const speed = Math.random()*4+2;
+    particles.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,life:60});
+  }
+}
+function updateFW(){
+  fctx.clearRect(0,0,fw.width,fw.height);
+  particles.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.03; p.life--;
+    fctx.fillStyle=`rgba(255,220,120,${p.life/60})`;
+    fctx.beginPath(); fctx.arc(p.x,p.y,3,0,Math.PI*2); fctx.fill();
+  });
+  particles = particles.filter(p=>p.life>0);
+  requestAnimationFrame(updateFW);
+}
+updateFW();
+
+//--------------------------------------------------
+// ★ 音（ピコッ → ゴールでドーン）
+//--------------------------------------------------
+const beep = new Audio('data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=');
+const boom = new Audio('data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=');
+//--------------------------------------------------
+// あみだくじ本体（前バージョンから要素のみ差し替え）
+//--------------------------------------------------
+const COLS = 6;
+const svg = document.getElementById('amida');
+const bottomNames = document.getElementById('bottomNames');
+const resultEl = document.getElementById('result');
+const rowsInput = document.getElementById('rows');
+let rows = 14;
+let rungs = [];
+
+function names(){ return Array.from(document.querySelectorAll('#nameInputs input')).slice(0,COLS).map(x=>x.value||'名無し'); }
+
+function generateRungs(){
+  rows = Math.max(6, Math.min(40, parseInt(rowsInput.value)||14));
+  rungs = Array.from({length:rows},()=>Array(COLS-1).fill(false));
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<COLS-1;c++){
+      if(Math.random()<0.3){ if(c>0 && rungs[r][c-1]) continue; rungs[r][c]=true; }
+    }
+  }
+  render();
+}
+
+function render(){
+  svg.innerHTML='';
+  const W=760,H=480; const L=80,R=W-80,T=60,B=H-80;
+  const spaceX=(R-L)/(COLS-1), rowH=(B-T)/(rows-1);
+
+  // 縦線
+  for(let c=0;c<COLS;c++){
+    const x=L+c*spaceX;
+    const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1',x); ln.setAttribute('x2',x); ln.setAttribute('y1',T); ln.setAttribute('y2',B);
+    ln.setAttribute('stroke','#8fa6c2'); ln.setAttribute('stroke-width','4'); ln.setAttribute('stroke-linecap','round');
+    svg.appendChild(ln);
+  }
+
+  // 横線
+  for(let r=0;r<rows;r++){
+    const y=T+r*rowH;
+    for(let c=0;c<COLS-1;c++) if(rungs[r][c]){
+      const h=document.createElementNS('http://www.w3.org/2000/svg','line');
+      h.setAttribute('x1',L+c*spaceX); h.setAttribute('x2',L+(c+1)*spaceX);
+      h.setAttribute('y1',y); h.setAttribute('y2',y);
+      h.setAttribute('stroke','#6ee7b7'); h.setAttribute('stroke-width','5');
+      svg.appendChild(h);
+    }
+  }
+
+  // クリックスタート
+  for(let c=0;c<COLS;c++){
+    const x=L+c*spaceX;
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.textContent=(c+1)+'号';
+    t.setAttribute('x',x); t.setAttribute('y',T-20);
+    t.setAttribute('fill','#dbe9ff'); t.setAttribute('text-anchor','middle'); t.style.cursor='pointer';
+    t.addEventListener('click', ()=> start(c));
+    svg.appendChild(t);
+  }
+
+  bottomNames.innerHTML='';
+  names().forEach(n=>{
+    const d=document.createElement('div'); d.style.width=(100/COLS)+'%';d.style.textAlign='center'; d.textContent=n;
+    bottomNames.appendChild(d);
+  });
+}
+
+// 経路計算
+function computePath(col){
+  const W=760,H=480; const L=80,R=W-80,T=60,B=H-80;
+  const spaceX=(R-L)/(COLS-1), rowH=(B-T)/(rows-1);
+  const pts=[{x:L+col*spaceX,y:T-20}];
+  for(let r=0;r<rows;r++){
+    const y=T+r*rowH;
+    pts.push({x:L+col*spaceX,y});
+    if(rungs[r][col]) col++;
+    else if(col>0 && rungs[r][col-1]) col--;
+    pts.push({x:L+col*spaceX,y:y+rowH*0.4});
+  }
+  pts.push({x:L+col*spaceX,y:B+20});
+  return {pts,finalCol:col};
+}
+
+function lerp(a,b,t){ return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t}; }
+
+let running=false;
+async function start(col){
+  if(running) return; running=true;
+  resultEl.textContent='…';
+  const startCol = (typeof col==='number')?col:Math.floor(Math.random()*COLS);
+  const {pts,finalCol} = computePath(startCol);
+
+  const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+  circle.setAttribute('r',10); circle.setAttribute('fill','#ffd166'); svg.appendChild(circle);
+
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    const dist=Math.hypot(b.x-a.x,b.y-a.y);
+    const steps=Math.max(6,Math.floor(dist/6));
+    for(let s=1;s<=steps;s++){
+      const p=lerp(a,b,s/steps);
+      circle.setAttribute('cx',p.x); circle.setAttribute('cy',p.y);
+      beep.currentTime=0; beep.play().catch(()=>{});
+      await new Promise(r=>setTimeout(r,14));
+    }
+  }
+  const winner = names()[finalCol];
+  resultEl.textContent = '当たり：'+winner;
+  boom.currentTime=0; boom.play().catch(()=>{});
+  const rect = svg.getBoundingClientRect();
+  spawnFirework(rect.left + (finalCol+0.5)*(rect.width/COLS), rect.top + rect.height*0.9);
+  await new Promise(r=>setTimeout(r,800));
+  circle.remove(); running=false;
+}
+
+document.getElementById('gen').onclick=()=>{generateRungs(); resultEl.textContent='—';};
+document.getElementById('start').onclick=()=> start();
+document.getElementById('reset').onclick=()=>{ location.reload(); };
+rowsInput.onchange=()=> generateRungs();
+
+generateRungs();
+</script>
+  <div id="winnerNameDisplay" class="winner-flash" style="display:none;position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);font-size:4rem;font-weight:bold;color:#ffeb3b;text-shadow:0 0 20px #ff4081,0 0 40px #ff4081,0 0 60px #ff4081,0 0 80px #ff4081;z-index:9999;animation:pop 1s ease-out forwards, glow 1.5s infinite alternate;"></div>
+
+  <style>
+    @keyframes pop {
+      0% { transform:translate(-50%,-50%) scale(0.1); opacity:0; }
+      100% { transform:translate(-50%,-50%) scale(1.2); opacity:1; }
+    }
+    @keyframes glow {
+      0% { text-shadow:0 0 10px #ff4081,0 0 20px #ff4081; }
+      100% { text-shadow:0 0 30px #ff4081,0 0 60px #ff4081; }
+    }
+  </style>
+
+  <script>
+    function showWinnerName(name){
+      const box=document.getElementById('winnerNameDisplay');
+      box.innerText=name;
+      box.style.display='block';
+      setTimeout(()=>{ box.style.display='none'; },5000);
+    }
+  </script>
+</body>
+</html>
